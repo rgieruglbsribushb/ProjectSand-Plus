@@ -117,6 +117,8 @@ const CHARGED_NITRO = __inGameColor(245, 98, 78);
 const ACID = __inGameColor(157, 240, 40);
 const THERMITE = __inGameColor(195, 140, 70);
 const BURNING_THERMITE = __inGameColor(255, 130, 130);
+const MOLTEN_GLASS = __inGameColor(246, 95, 40);
+const GLASS = __inGameColor(109, 151, 151);
 
 /*
  * It would be nice to combine the elements and elementActions
@@ -164,6 +166,8 @@ const elements = new Uint32Array([
   ACID,
   THERMITE,
   BURNING_THERMITE,
+  MOLTEN_GLASS,
+  GLASS,
 ]);
 const elementActions = [
   BACKGROUND_ACTION,
@@ -203,6 +207,8 @@ const elementActions = [
   ACID_ACTION,
   THERMITE_ACTION,
   BURNING_THERMITE_ACTION,
+  MOLTEN_GLASS_ACTION,
+  GLASS_ACTION,
 ];
 Object.freeze(elementActions);
 
@@ -275,6 +281,11 @@ function SAND_ACTION(x, y, i) {
   if (y !== MAX_Y_IDX && uniformBelowAdjacent(x, y, i) !== SAND) {
     if (doDensitySink(x, y, i, WATER, true, 25)) return;
     if (doDensitySink(x, y, i, SALT_WATER, true, 25)) return;
+  }
+  
+  if (bordering(x, y, i, LAVA) !== -1) {
+    gameImagedata32[i] = MOLTEN_GLASS;
+    return;
   }
 
   if (doGravity(x, y, i, true, 95)) return;
@@ -1192,6 +1203,121 @@ function BURNING_THERMITE_ACTION(x, y, i) {
   if (doDensitySink(x, y, i, WATER, false, 95)) return;
   if (doDensitySink(x, y, i, SALT_WATER, false, 95)) return;
   if (doDensitySink(x, y, i, OIL, false, 95)) return;
+}
+
+function MOLTEN_GLASS_ACTION(x, y, i) {
+  if (random() < 1 && random() < 50) {
+    const wallLoc = borderingAdjacent(x, y, i, WALL);
+    if (wallLoc !== -1) gameImagedata32[wallLoc] = LAVA;
+  }
+
+  const up = y !== 0 ? i - width : -1;
+  const down = y !== MAX_Y_IDX ? i + width : -1;
+  const left = x !== 0 ? i - 1 : -1;
+  const right = x !== MAX_X_IDX ? i + 1 : -1;
+
+  var skipDirectAdjacent = true;
+  if (up !== -1 && gameImagedata32[up] !== LAVA) skipDirectAdjacent = false;
+  else if (
+    left !== -1 &&
+    gameImagedata32[left] !== LAVA &&
+    gameImagedata32[left] !== BACKGROUND
+  )
+    skipDirectAdjacent = false;
+  else if (
+    right !== -1 &&
+    gameImagedata32[right] !== LAVA &&
+    gameImagedata32[right] !== BACKGROUND
+  )
+    skipDirectAdjacent = false;
+  else if (
+    down !== -1 &&
+    gameImagedata32[down] !== LAVA &&
+    gameImagedata32[down] !== BACKGROUND
+  )
+    skipDirectAdjacent = false;
+
+  /*
+   * Optimization. The only checks made within this scope are
+   * of the four directly adjacent pixels.
+   *
+   * DO NOT ADD ANYTHING IN HERE THAT CHECKS CORNER PIXELS.
+   */
+  if (!skipDirectAdjacent) {
+    var waterLoc = bordering(x, y, i, WATER);
+    if (waterLoc === -1) waterLoc = bordering(x, y, i, SALT_WATER);
+    if (waterLoc !== -1) {
+      gameImagedata32[waterLoc] = STEAM;
+      gameImagedata32[i] = ROCK;
+      return;
+    }
+
+    if (random() < 4) {
+      const numLavaParticles = particles.particleCounts[LAVA_PARTICLE];
+      const spawnChance = numLavaParticles < 10 ? 100 : 35;
+      if (random() < spawnChance) {
+        if (bordering(x, y, i, OIL) !== -1) {
+          particles.addActiveParticle(LAVA_PARTICLE, x, y, i);
+          gameImagedata32[i] = BACKGROUND;
+          return;
+        }
+      }
+    }
+
+    if (random() < 25) {
+      const burnLocs = [up, down, left, right];
+      const numBurnLocs = burnLocs.length;
+      var j, k;
+
+      for (j = 0; j !== numBurnLocs; j++) {
+        const burnLoc = burnLocs[j];
+
+        if (burnLoc === -1) continue;
+
+        const elem = gameImagedata32[burnLoc];
+        var burn = true;
+        for (k = 0; k !== __num_lava_immune; k++) {
+          if (elem === __lava_immune[k]) {
+            burn = false;
+            break;
+          }
+        }
+        if (burn) gameImagedata32[burnLoc] = FIRE;
+      }
+    }
+
+    if (random() < 6 && up !== -1) {
+      if (gameImagedata32[up] === BACKGROUND) gameImagedata32[up] = FIRE;
+    }
+
+    if (down !== -1) {
+      const belowElem = gameImagedata32[down];
+      if (belowElem === FIRE) {
+        gameImagedata32[down] = BACKGROUND;
+      } else if (belowElem === STEAM && random() < 95) {
+        /* Allow steam to pass through */
+        gameImagedata32[down] = LAVA;
+        gameImagedata32[i] = STEAM;
+        return;
+      }
+    }
+
+    /*
+     * Allow lava to burn sideways through fire. Useful for interaction with
+     * burning wax, for example.
+     */
+    if (random() < 15) {
+      if (left !== -1) {
+        if (gameImagedata32[left] === FIRE) gameImagedata32[left] = BACKGROUND;
+      }
+      if (right !== -1) {
+        if (gameImagedata32[right] === FIRE)
+          gameImagedata32[right] = BACKGROUND;
+      }
+    }
+  }
+
+  if (doGravity(x, y, i, true, 100)) return;
 }
 
 /*  =============================== Helpers =============================== */
